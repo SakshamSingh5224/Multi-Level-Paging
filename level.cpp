@@ -17,71 +17,56 @@
  * @param virtualAddress Virtual address to insert
  * @param newFrame New frame to assign the inserted virtual address
  */
-void pageInsert(Level *level, uint32_t virtualAddress, uint32_t newFrame)
-{
+void pageInsert(Level *level, uint32_t virtualAddress, uint32_t newFrame) {
+    if (level == nullptr || level->pageTable == nullptr) {
+        // Handle invalid level pointer or page table pointer
+        return;
+    }
+
     int currentDepth = level->depth;
     uint32_t indexToInsert = level->pageTable->pageLookup[currentDepth];
     uint32_t vpn = virtualAddressToPageNum(virtualAddress, level->pageTable->vpnMask, level->pageTable->offsetSize);
 
-    // if leaf node
-    if (currentDepth == (level->pageTable->numLevels) - 1)
-    {
-        level->isLeaf = true; // set level as leaf node
-
-        // if mappings in level are all NULL
-        if (level->mappings == NULL)
-        {
-            level->mappings = new Map[level->pageTable->entriesPerLevel[currentDepth]]; // create new array of mappings of appropriate size
-
-            // initialize new mappings array to invalid values
-            // ensures that a VPN 0/NULL isn't mistakenly found
-            for (int i = 0; i < level->pageTable->entriesPerLevel[currentDepth]; i++)
-            {
-                level->mappings[i].vpn = DEFAULTMAPVALUES;
-                level->mappings[i].frame = DEFAULTMAPVALUES;
+    // Leaf node
+    if (currentDepth == level->pageTable->numLevels - 1) {
+        if (level->mappings == nullptr) {
+            // Initialize mappings array if not already initialized
+            level->mappings = new Map[level->pageTable->entriesPerLevel[currentDepth]];
+            if (level->mappings == nullptr) {
+                // Handle memory allocation failure
+                return;
+            }
+            // Initialize mappings array to default values
+            for (int i = 0; i < level->pageTable->entriesPerLevel[currentDepth]; ++i) {
+                level->mappings[i] = {DEFAULT_MAP_VALUE, DEFAULT_MAP_VALUE};
             }
         }
 
-        // insert VPN->PFN mapping at appropriate index
-        level->mappings[indexToInsert].vpn = vpn;
-        level->mappings[indexToInsert].frame = newFrame;
-    }
-    // is not leaf node
-    else
-    {
-        // if entry already exists at index
-        if (level->nextLevel[indexToInsert] != NULL)
-        {
-            // continue onto next level
-            pageInsert(level->nextLevel[indexToInsert], virtualAddress, newFrame);
-        }
-        // if entry doesn't exist at index
-        else
-        {
-            // if entire next levels are NULL
-            if (level->nextLevel == NULL)
-            {
-                level->nextLevel = new Level *[level->pageTable->entriesPerLevel[currentDepth]]; // create new array of mappings of appropriate size
+        // Insert VPN->PFN mapping at the specified index
+        level->mappings[indexToInsert] = {vpn, newFrame};
+    } else { // Non-leaf node
+        if (level->nextLevel[indexToInsert] == nullptr) {
+            // Create new level if entry doesn't exist at index
+            level->nextLevel[indexToInsert] = new Level();
+            if (level->nextLevel[indexToInsert] == nullptr) {
+                // Handle memory allocation failure
+                return;
             }
+            level->nextLevel[indexToInsert]->pageTable = level->pageTable;
+            level->nextLevel[indexToInsert]->depth = currentDepth + 1;
 
-            Level *newLevel = new Level();          // create new level
-            newLevel->pageTable = level->pageTable; // assign PageTable to new level
-            newLevel->depth = level->depth + 1;     // assign new level depth + 1
-
-            // array of level* entries based upon the number of entries in the new level
-            int size = level->pageTable->entriesPerLevel[newLevel->depth];
-            Level **nextLevel = new Level *[size];
-
-            // initialize next level entries to NULL
-            for (int i = 0; i < size; i++)
-            {
-                nextLevel[i] = NULL;
+            // Initialize next level array to nullptr
+            int size = level->pageTable->entriesPerLevel[level->nextLevel[indexToInsert]->depth];
+            level->nextLevel[indexToInsert]->nextLevel = new Level*[size]();
+            if (level->nextLevel[indexToInsert]->nextLevel == nullptr) {
+                // Handle memory allocation failure
+                delete level->nextLevel[indexToInsert];
+                level->nextLevel[indexToInsert] = nullptr;
+                return;
             }
-
-            newLevel->nextLevel = nextLevel;            // assign NULL entries to new level
-            level->nextLevel[indexToInsert] = newLevel; // assign current level with pointer to the next
-
-            pageInsert(newLevel, virtualAddress, newFrame); // insert new level
         }
+
+        // Recursively insert into the next level
+        pageInsert(level->nextLevel[indexToInsert], virtualAddress, newFrame);
     }
 }
